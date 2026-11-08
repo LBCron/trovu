@@ -71,4 +71,43 @@ describe("CallHandler", () => {
 
     shortcutSpy.mockRestore();
   });
+
+  test("isExternalUrl detects cross-origin http(s) URLs and ignores internal or mailto URLs", () => {
+    expect(CallHandler.isExternalUrl("https://www.google.com/search?q=test")).toBe(true);
+    expect(CallHandler.isExternalUrl("http://example.com/")).toBe(true);
+    expect(CallHandler.isExternalUrl("../index.html#status=not_found")).toBe(false);
+    expect(CallHandler.isExternalUrl("/index.html")).toBe(false);
+    expect(CallHandler.isExternalUrl("mailto:test@example.com")).toBe(false);
+    expect(CallHandler.isExternalUrl("not a url")).toBe(false);
+  });
+
+  test("buildAndroidIntentUrl constructs intent URI for external http(s) targets", () => {
+    expect(CallHandler.buildAndroidIntentUrl("https://www.google.com/search?q=foo")).toBe(
+      "intent://www.google.com/search?q=foo#Intent;scheme=https;" +
+        "action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;" +
+        "S.browser_fallback_url=https%3A%2F%2Fwww.google.com%2Fsearch%3Fq%3Dfoo;end",
+    );
+    expect(CallHandler.buildAndroidIntentUrl("mailto:test@example.com")).toBe("mailto:test@example.com");
+  });
+
+  test("openTargetUrl clicks a _blank anchor in standalone mode for external URLs", () => {
+    const clickSpy = jest.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    const appendSpy = jest.spyOn(document.body, "appendChild");
+
+    const openedExternally = CallHandler.openTargetUrl(
+      "https://www.google.com/",
+      { isRunningStandalone: () => true },
+      true,
+    );
+
+    expect(openedExternally).toBe(true);
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    const anchor = appendSpy.mock.calls[0][0] as HTMLAnchorElement;
+    expect(anchor.target).toBe("_blank");
+    expect(anchor.rel).toBe("noopener noreferrer");
+    expect(anchor.href).toBe("https://www.google.com/");
+
+    clickSpy.mockRestore();
+    appendSpy.mockRestore();
+  });
 });

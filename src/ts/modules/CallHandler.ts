@@ -45,7 +45,82 @@ export default class CallHandler {
       return;
     }
 
-    window.location.replace(redirectUrl);
+    this.openTargetUrl(redirectUrl, env, true);
+  }
+
+  /**
+   * Check whether a redirect URL is an external http(s) URL outside the current origin.
+   */
+  static isExternalUrl(redirectUrl: string): boolean {
+    if (
+      !redirectUrl ||
+      redirectUrl.startsWith("../") ||
+      redirectUrl.startsWith("./") ||
+      redirectUrl.startsWith("/") ||
+      redirectUrl.startsWith("#")
+    ) {
+      return false;
+    }
+    try {
+      const baseOrigin = typeof window !== "undefined" && window.location?.origin ? window.location.origin : "";
+      const parsedUrl = baseOrigin ? new URL(redirectUrl, baseOrigin) : new URL(redirectUrl);
+      if (!["http:", "https:"].includes(parsedUrl.protocol)) {
+        return false;
+      }
+      return !baseOrigin || parsedUrl.origin !== baseOrigin;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Build an Android intent:// URI for an external http(s) URL so Android can dispatch
+   * it to a matching native app or external browser handler.
+   */
+  static buildAndroidIntentUrl(redirectUrl: string): string {
+    if (!this.isExternalUrl(redirectUrl)) {
+      return redirectUrl;
+    }
+    const parsedUrl = new URL(redirectUrl);
+    const scheme = parsedUrl.protocol.slice(0, -1);
+    const targetPath = `${parsedUrl.host}${parsedUrl.pathname}${parsedUrl.search}${parsedUrl.hash}`;
+    return (
+      `intent://${targetPath}#Intent;scheme=${scheme};` +
+      `action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;` +
+      `S.browser_fallback_url=${encodeURIComponent(redirectUrl)};end`
+    );
+  }
+
+  /**
+   * Navigate to a resolved redirect URL. When running in a standalone PWA and the target
+   * is an external http(s) URL, hand off navigation outside the PWA window.
+   */
+  static openTargetUrl(
+    redirectUrl: string,
+    env?: Pick<Env, "isRunningStandalone">,
+    replace = false,
+  ): boolean {
+    const isStandalone = Boolean(env?.isRunningStandalone?.());
+    if (isStandalone && this.isExternalUrl(redirectUrl) && typeof document !== "undefined") {
+      const userAgent = typeof navigator !== "undefined" ? navigator.userAgent || "" : "";
+      const href = /Android/i.test(userAgent) ? this.buildAndroidIntentUrl(redirectUrl) : redirectUrl;
+      const anchor = document.createElement("a");
+      anchor.href = href;
+      anchor.target = "_blank";
+      anchor.rel = "noopener noreferrer";
+      anchor.style.display = "none";
+      document.body?.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      return true;
+    }
+
+    if (replace) {
+      window.location.replace(redirectUrl);
+    } else {
+      window.location.href = redirectUrl;
+    }
+    return false;
   }
 
   /**
